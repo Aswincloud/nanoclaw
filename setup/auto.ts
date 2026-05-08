@@ -468,7 +468,7 @@ async function main(): Promise<void> {
       } else if (channelChoice === 'imessage') {
         result = await runIMessageChannel(displayName!);
       } else if (channelChoice === 'other') {
-        await askOtherChannelName();
+        result = await askOtherChannelName();
       } else {
         p.log.info(
           brandBody(
@@ -740,11 +740,37 @@ async function runAuthStep(): Promise<void> {
           label: 'Paste an Anthropic API key',
           hint: 'pay-per-use via console.anthropic.com',
         },
+        {
+          value: 'skip',
+          label: "Skip — I'll connect later",
+          hint: 'not recommended — Claude helps debug setup issues',
+        },
       ],
     }),
-  ) as 'subscription' | 'oauth' | 'api';
+  ) as 'subscription' | 'oauth' | 'api' | 'skip';
   setupLog.userInput('auth_method', method);
   phEmit('auth_method_chosen', { method });
+
+  if (method === 'skip') {
+    const confirmed = ensureAnswer(
+      await p.confirm({
+        message:
+          "Skip Claude sign-in? The agent won't be able to run until you connect, and we won't be able to help debug setup errors.",
+        initialValue: false,
+      }),
+    );
+    if (!confirmed) {
+      // Loop back to the auth picker so they can choose a real method.
+      return runAuthStep();
+    }
+    setupLog.step('auth', 'skipped', 0, { REASON: 'user-skipped' });
+    p.log.warn(
+      brandBody(
+        'Claude sign-in skipped. Re-run setup or run `bash nanoclaw.sh` to finish later.',
+      ),
+    );
+    return;
+  }
 
   if (method === 'subscription') {
     await runSubscriptionAuth();
@@ -1099,10 +1125,26 @@ async function askChannelChoice(): Promise<ChannelChoice> {
   return choice;
 }
 
-async function askOtherChannelName(): Promise<void> {
+async function askOtherChannelName(): Promise<void | typeof BACK_TO_CHANNEL_SELECTION> {
+  const action = ensureAnswer(
+    await brightSelect<'type' | 'back'>({
+      message: 'Which channel would you like to install?',
+      options: [
+        {
+          value: 'type',
+          label: 'Type the channel name',
+          hint: 'e.g. matrix, github, linear, webex',
+        },
+        { value: 'back', label: '← Back to channel selection' },
+      ],
+      initialValue: 'type',
+    }),
+  );
+  if (action === 'back') return BACK_TO_CHANNEL_SELECTION;
+
   const answer = ensureAnswer(
     await p.text({
-      message: 'Which channel would you like to install?',
+      message: 'Channel name',
       placeholder: 'e.g. matrix, github, linear, webex',
     }),
   );
