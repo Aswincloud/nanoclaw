@@ -275,7 +275,7 @@ describe('routeAgentMessage return-path', () => {
     expect(s2Rows).toHaveLength(0);
   });
 
-  it('stale origin fallback: archived origin session falls through to newest active', async () => {
+  it('stale origin fallback: closed origin session falls through to newest active', async () => {
     // A.S1 sends to B, establishing source_session_id = S1.id on B's inbound.
     await routeAgentMessage(
       { id: 'msg-fwd', platform_id: B, content: JSON.stringify({ text: 'hello' }), in_reply_to: null },
@@ -284,10 +284,10 @@ describe('routeAgentMessage return-path', () => {
     const bRows = readInbound(B, SB.id);
     const inboundId = bRows[0].id;
 
-    // Archive S1 — simulates session cleanup or channel disconnect.
-    updateSession(S1.id, { status: 'archived' });
+    // Close S1 — simulates session cleanup or channel disconnect.
+    updateSession(S1.id, { status: 'closed' });
 
-    // B replies. origin points to S1 (archived), should fall through to S2.
+    // B replies. origin points to S1 (closed), should fall through to S2.
     await routeAgentMessage(
       { id: 'msg-reply-stale', platform_id: A, content: JSON.stringify({ text: 'reply' }), in_reply_to: inboundId },
       SB,
@@ -328,7 +328,12 @@ describe('routeAgentMessage return-path', () => {
     // B replies to A, but in_reply_to references the C-originated row.
     // Guard rejects (SC belongs to C, not A) → falls through to newest of A.
     await routeAgentMessage(
-      { id: 'msg-reply-tamper', platform_id: A, content: JSON.stringify({ text: 'misdirected' }), in_reply_to: cInboundId },
+      {
+        id: 'msg-reply-tamper',
+        platform_id: A,
+        content: JSON.stringify({ text: 'misdirected' }),
+        in_reply_to: cInboundId,
+      },
       SB,
     );
 
@@ -353,7 +358,12 @@ describe('routeAgentMessage return-path', () => {
     // B replies to A with in_reply_to pointing to the channel message.
     // source_session_id is null → peer-affinity finds nothing → newest of A.
     await routeAgentMessage(
-      { id: 'msg-reply-channel', platform_id: A, content: JSON.stringify({ text: 'response' }), in_reply_to: 'channel-msg-1' },
+      {
+        id: 'msg-reply-channel',
+        platform_id: A,
+        content: JSON.stringify({ text: 'response' }),
+        in_reply_to: 'channel-msg-1',
+      },
       SB,
     );
 
