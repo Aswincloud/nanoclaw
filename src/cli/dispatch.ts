@@ -11,6 +11,7 @@ import { getAgentGroup } from '../db/agent-groups.js';
 import { getSession } from '../db/sessions.js';
 import { registerApprovalHandler, requestApproval } from '../modules/approvals/index.js';
 import type { CallerContext, ErrorCode, RequestFrame, ResponseFrame } from './frame.js';
+import { getResource } from './crud.js';
 import { lookup } from './registry.js';
 
 export async function dispatch(req: RequestFrame, ctx: CallerContext): Promise<ResponseFrame> {
@@ -87,6 +88,16 @@ export async function dispatch(req: RequestFrame, ctx: CallerContext): Promise<R
         fill.id = req.args.id ?? ctx.agentGroupId;
       }
       req = { ...req, args: { ...req.args, ...fill } };
+
+      // Fail-closed pre-handler check for sessions-get: returns "not found"
+      // regardless of whether the UUID exists in another group, preventing an
+      // existence oracle across group boundaries.
+      if (cmd.resource === 'sessions' && req.command === 'sessions-get' && req.args.id) {
+        const s = getSession(req.args.id as string);
+        if (!s || s.agent_group_id !== ctx.agentGroupId) {
+          return err(req.id, 'handler-error', `session not found: ${req.args.id}`);
+        }
+      }
     }
   }
 
@@ -124,14 +135,28 @@ export async function dispatch(req: RequestFrame, ctx: CallerContext): Promise<R
   try {
     let data = await cmd.handler(parsed, ctx);
 
-    // Post-handler group scope enforcement: filter/verify results belong
-    // to the caller's agent group. Catches leaks that pre-handler auto-fill
-    // can't prevent (e.g. `groups list` where the id arg is skipped by the
-    // generic list handler, or `sessions get` by UUID).
-    if (ctx.caller === 'agent' && cmd.resource) {
+    // Post-handler group-scope enforcement. Applies only to the auto-generated
+    // `list` / `get` handlers (`cmd.generic`), which return raw DB rows carrying
+    // the resource's `scopeField`:
+    //   - `list` → drop rows that don't belong to the caller's agent group
+    //              (covers `groups list`, where the generic list handler ignores
+    //              the auto-filled `--id`)
+    //   - `get`  → reject if the single row belongs to another group
+    // Custom operations return ad-hoc shapes (e.g. `groups config get` → a config
+    // object with no `id`) and are NOT checked here — they would be falsely
+    // rejected, and they're already pinned to the caller's group by the
+    // pre-handler `--id` auto-fill (groups/destinations) or gated behind approval,
+    // so they can't reach another group's data anyway.
+    if (ctx.caller === 'agent' && cmd.resource && cmd.generic) {
       const configRow = getContainerConfig(ctx.agentGroupId);
       if ((configRow?.cli_scope ?? 'group') === 'group') {
-        const groupField = cmd.resource === 'groups' ? 'id' : 'agent_group_id';
+        const def = getResource(cmd.resource);
+        const groupField = def?.scopeField;
+        if (!groupField) {
+          // Fail closed: a whitelisted resource exposing list/get must declare
+          // `scopeField` so its rows can be filtered.
+          return err(req.id, 'forbidden', `"${cmd.resource}" is not available in group scope.`);
+        }
         if (Array.isArray(data)) {
           data = data.filter(
             (row) =>
@@ -139,7 +164,7 @@ export async function dispatch(req: RequestFrame, ctx: CallerContext): Promise<R
               row !== null &&
               (row as Record<string, unknown>)[groupField] === ctx.agentGroupId,
           );
-        } else if (data && typeof data === 'object' && groupField in (data as Record<string, unknown>)) {
+        } else if (data && typeof data === 'object') {
           if ((data as Record<string, unknown>)[groupField] !== ctx.agentGroupId) {
             return err(req.id, 'forbidden', 'Resource belongs to a different agent group.');
           }

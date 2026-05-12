@@ -52,6 +52,12 @@ export interface ResourceDef {
   description: string;
   /** Primary key column name. */
   idColumn: string;
+  /**
+   * Column that carries the agent group ID for group-scope enforcement.
+   * Required on every resource in the CLI whitelist (groups, sessions,
+   * destinations, members). When absent, post-handler filtering fails closed.
+   */
+  scopeField?: string;
   columns: ColumnDef[];
   /** Which standard CRUD operations are enabled. */
   operations: {
@@ -226,6 +232,7 @@ export function registerResource(def: ResourceDef): void {
       description: `List all ${def.plural}.`,
       access: def.operations.list,
       resource: def.plural,
+      generic: 'list',
       parseArgs: (raw) => normalizeArgs(raw),
       handler: genericList(def),
     });
@@ -237,6 +244,7 @@ export function registerResource(def: ResourceDef): void {
       description: `Get a ${def.name} by ID.`,
       access: def.operations.get,
       resource: def.plural,
+      generic: 'get',
       parseArgs: (raw) => normalizeArgs(raw),
       handler: genericGet(def),
     });

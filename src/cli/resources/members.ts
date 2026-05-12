@@ -8,6 +8,7 @@ registerResource({
   description:
     'Agent group member — grants an unprivileged user permission to interact with an agent group. Users with admin or owner roles on the group are implicitly members and do not need a separate membership row. Membership is checked by the router when sender_scope is "known".',
   idColumn: 'user_id',
+  scopeField: 'agent_group_id',
   columns: [
     {
       name: 'user_id',

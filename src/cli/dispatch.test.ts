@@ -21,6 +21,13 @@ vi.mock('../db/sessions.js', () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
 }));
 
+// dispatch's post-handler looks up the resource's `scopeField` via getResource.
+// The real resources aren't registered in this unit test, so mock it.
+const mockGetResource = vi.fn();
+vi.mock('./crud.js', () => ({
+  getResource: (...args: unknown[]) => mockGetResource(...args),
+}));
+
 vi.mock('../modules/approvals/index.js', () => ({
   registerApprovalHandler: vi.fn(),
   requestApproval: vi.fn(),
@@ -97,6 +104,7 @@ register({
   description: 'returns mock group rows',
   resource: 'groups',
   access: 'open',
+  generic: 'list',
   parseArgs: (raw) => raw,
   handler: async () => [
     { id: 'g1', name: 'my-group' },
@@ -109,6 +117,7 @@ register({
   description: 'returns a mock session row',
   resource: 'sessions',
   access: 'open',
+  generic: 'get',
   parseArgs: (raw) => raw,
   handler: async (args) => ({
     id: args.id,
@@ -116,11 +125,43 @@ register({
   }),
 });
 
+// A custom op under the `groups` resource that returns a config-shaped object
+// (no `id` key). The post-handler must not touch this — only `generic` handlers.
+register({
+  name: 'groups-config-get',
+  description: 'custom op returning a config object (no id)',
+  resource: 'groups',
+  access: 'open',
+  parseArgs: (raw) => raw,
+  handler: async () => ({ agent_group_id: 'g1', model: 'opus' }),
+});
+
+// The real `sessions-get` name — triggers the pre-handler ownership check.
+register({
+  name: 'sessions-get',
+  description: 'generic sessions get',
+  resource: 'sessions',
+  access: 'open',
+  generic: 'get',
+  parseArgs: (raw) => raw,
+  handler: async (args) => ({ id: (args as Record<string, unknown>).id, agent_group_id: 'g1' }),
+});
+
 import { dispatch } from './dispatch.js';
 import type { CallerContext } from './frame.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: the four CLI-whitelisted resources with their real scopeFields.
+  const scopeFields: Record<string, string> = {
+    groups: 'id',
+    sessions: 'agent_group_id',
+    destinations: 'agent_group_id',
+    members: 'agent_group_id',
+  };
+  mockGetResource.mockImplementation((plural: string) =>
+    scopeFields[plural] ? { scopeField: scopeFields[plural] } : undefined,
+  );
 });
 
 // --- Helpers ---
@@ -400,6 +441,74 @@ describe('CLI scope enforcement', () => {
     if (resp.ok) {
       const data = resp.data as Array<{ id: string }>;
       expect(data).toHaveLength(2); // both groups returned
+    }
+  });
+
+  // --- Custom ops bypass post-handler row filtering (regression: #2392 review) ---
+
+  it('group: a custom op returning a non-row object is not falsely rejected', async () => {
+    mockGetContainerConfig.mockReturnValue({ cli_scope: 'group' });
+
+    // groups-config-get is access:open and reachable by a group-scoped agent;
+    // it returns { agent_group_id, model } with no `id` field. Before this fix
+    // the post-handler compared data['id'] (undefined) and returned forbidden.
+    const resp = await dispatch({ id: '1', command: 'groups-config-get', args: {} }, agentCtx());
+
+    expect(resp.ok).toBe(true);
+    if (resp.ok) {
+      expect((resp.data as { model: string }).model).toBe('opus');
+    }
+  });
+
+  // --- sessions-get pre-handler ownership check (no existence oracle) ---
+
+  it('group: sessions-get returns "session not found" for a foreign session UUID', async () => {
+    mockGetContainerConfig.mockReturnValue({ cli_scope: 'group' });
+    mockGetSession.mockReturnValue({ id: 's-x', agent_group_id: 'other-group' });
+
+    const resp = await dispatch({ id: '1', command: 'sessions-get', args: { id: 's-x' } }, agentCtx());
+
+    expect(resp.ok).toBe(false);
+    if (!resp.ok) {
+      expect(resp.error.code).toBe('handler-error');
+      expect(resp.error.message).toContain('session not found');
+    }
+  });
+
+  it('group: sessions-get returns "session not found" for a non-existent UUID', async () => {
+    mockGetContainerConfig.mockReturnValue({ cli_scope: 'group' });
+    mockGetSession.mockReturnValue(undefined);
+
+    const resp = await dispatch({ id: '1', command: 'sessions-get', args: { id: 's-nope' } }, agentCtx());
+
+    expect(resp.ok).toBe(false);
+    if (!resp.ok) {
+      expect(resp.error.code).toBe('handler-error');
+      expect(resp.error.message).toContain('session not found');
+    }
+  });
+
+  it('group: sessions-get allows the caller’s own session', async () => {
+    mockGetContainerConfig.mockReturnValue({ cli_scope: 'group' });
+    mockGetSession.mockReturnValue({ id: 's-mine', agent_group_id: 'g1' });
+
+    const resp = await dispatch({ id: '1', command: 'sessions-get', args: { id: 's-mine' } }, agentCtx());
+
+    expect(resp.ok).toBe(true);
+  });
+
+  // --- Fail-closed regression guard for a missing scopeField ---
+
+  it('group: generic list/get fails closed when the resource declares no scopeField', async () => {
+    mockGetContainerConfig.mockReturnValue({ cli_scope: 'group' });
+    mockGetResource.mockReturnValue(undefined); // a whitelisted resource that forgot scopeField
+
+    const resp = await dispatch({ id: '1', command: 'groups-list-data', args: {} }, agentCtx());
+
+    expect(resp.ok).toBe(false);
+    if (!resp.ok) {
+      expect(resp.error.code).toBe('forbidden');
+      expect(resp.error.message).toContain('not available in group scope');
     }
   });
 });
