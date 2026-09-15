@@ -25,6 +25,8 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, existsSync, writeFileSync, appendFileSync, copyFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { gitFetchBranchCommand } from './git-fetch-branch.js';
+import { gitShowToFileCommand } from './git-show-to-file.js';
 import { parseDirectives, promptVar, type Directive } from './skill-directives.js';
 
 // What an `nc:prompt` DECLARES about the value it needs — the core seam's input
@@ -650,13 +652,13 @@ async function applyOne(
       if (d.attrs['from-branch']) {
         const b = String(d.attrs['from-branch']);
         const remote = ctx.resolveRemote(b);
-        await exec(`git fetch ${remote} ${b}`);
+        await exec(gitFetchBranchCommand(remote, b));
         for (const l of d.body) {
           // The shell redirect can't create parent directories, and the dest
           // may not exist on trunk (e.g. container skills that live only on
           // the channels branch). Mirror the local-copy path's mkdir.
           mkdirSync(dirname(join(root, destOf(l))), { recursive: true });
-          await exec(`git show ${remote}/${b}:${srcOf(l)} > ${destOf(l)}`);
+          await exec(gitShowToFileCommand(`refs/remotes/${remote}/${b}`, srcOf(l), destOf(l)));
         }
       } else {
         for (const l of d.body) {
