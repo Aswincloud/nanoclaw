@@ -803,22 +803,40 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
       const content = message.content as Record<string, unknown>;
 
       if (content.operation === 'edit' && content.messageId) {
+        // Same composite-id strip as the reaction path: router stores
+        // messages_in.id as `<platform-ts>:<agent-group-id>` for uniqueness,
+        // but adapter.editMessage wants the raw platform id.
+        const editTargetId = (content.messageId as string).replace(/:ag-[A-Za-z0-9._-]+$/, '');
         const terminalCard = content.terminalCard as Partial<TerminalApprovalCard> | undefined;
-        if (
-          terminalCard &&
-          typeof terminalCard.title === 'string' &&
-          typeof terminalCard.question === 'string' &&
-          typeof terminalCard.resolution === 'string'
-        ) {
-          await adapter.editMessage(
-            tid,
-            content.messageId as string,
-            terminalApprovalMessage(terminalCard as TerminalApprovalCard),
-          );
-        } else {
-          await adapter.editMessage(tid, content.messageId as string, {
-            markdown: transformText((content.text as string) || (content.markdown as string) || ''),
-          });
+        try {
+          if (
+            terminalCard &&
+            typeof terminalCard.title === 'string' &&
+            typeof terminalCard.question === 'string' &&
+            typeof terminalCard.resolution === 'string'
+          ) {
+            await adapter.editMessage(tid, editTargetId, terminalApprovalMessage(terminalCard as TerminalApprovalCard));
+          } else {
+            await adapter.editMessage(tid, editTargetId, {
+              markdown: transformText((content.text as string) || (content.markdown as string) || ''),
+            });
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // Edits are best-effort updates. If the target message was
+          // deleted between our compose and the edit, don't retry —
+          // Slack counts retry storms as delivery failures and silently
+          // pauses inbound events to the whole app for ~7 hours.
+          if (msg.includes('message_not_found') || msg.includes('cant_update_message')) {
+            log.info('Edit skipped — target message unavailable', {
+              platformId,
+              tid,
+              targetId: editTargetId,
+              err: msg,
+            });
+            return;
+          }
+          throw err;
         }
         return;
       }
