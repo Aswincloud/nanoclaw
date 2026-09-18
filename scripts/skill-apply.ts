@@ -77,6 +77,12 @@ export interface StepOutcome {
   fields: Record<string, string>;
 }
 
+// Consumers must use this filter for command logs, diagnostics and live output.
+// Raw stdout remains available for captures; secret-derived captures stay private.
+export interface ExecContext {
+  redact: (text: string) => string;
+}
+
 export type StepStatus = 'skip' | 'apply' | 'needs-input' | 'agent';
 export interface PlanStep {
   n: number;
@@ -296,7 +302,7 @@ export interface ApplyOptions {
   onEvent?: (e: ApplyEvent) => void | Promise<void>;
   // dep/run/branch-fetch; injectable for tests. Returns the command's stdout so
   // a `run capture:<var>` can bind it into a {{var}} (the twin of `prompt`).
-  exec?: (cmd: string) => string | void | Promise<string | void>;
+  exec?: (cmd: string, context?: ExecContext) => string | void | Promise<string | void>;
   // Override dependency commands when the declared package manager is not
   // directly available on the host (for example, run the container's pinned
   // Bun through pnpm dlx during a refresh).
@@ -306,7 +312,7 @@ export interface ApplyOptions {
   // `=== NANOCLAW SETUP: … ===` status blocks, renders them to the operator live,
   // and resolves with the terminal block's fields (bound via capture:<var>=<FIELD>).
   // Absent ⇒ a step directive degrades to an agent (runs the step from the prose).
-  execStream?: (cmd: string) => Promise<StepOutcome>;
+  execStream?: (cmd: string, context?: ExecContext) => Promise<StepOutcome>;
   // Run effects the CALLER owns and will perform itself — those runs are skipped
   // (not executed). e.g. a headless rebuild or a setup that restarts once at the
   // end passes ['restart']; applyProviderSkill passes ['build','test'].
@@ -616,7 +622,7 @@ function bindCapture(
   const re = validate ? new RegExp(validate) : undefined;
   const set = (name: string, value: string): void => {
     if (re && !re.test(value)) throw new Error(`captured ${name}="${value}" does not match validate:${validate}`);
-    vars.set(name, { value, secret: false });
+    vars.set(name, { value, secret: [...vars.values()].some((v) => v.secret && v.value && value.includes(v.value)) });
   };
   if (!spec.includes('=')) {
     set(spec, stdout);
@@ -648,12 +654,16 @@ async function applyOne(
 ): Promise<void> {
   const { root, skillDir, exec, vars, journal } = ctx;
   switch (d.kind) {
-    case 'copy':
+    case 'copy': {
+      // Install fills gaps; only an explicit refresh replaces existing files.
+      // The block can contain both, so honor selfStatus's per-file decision.
+      const lines = d.body.filter((line) => ctx.mode === 'refresh' || !has(root, destOf(line)));
+      if (lines.length === 0) break;
       if (d.attrs['from-branch']) {
         const b = String(d.attrs['from-branch']);
         const remote = ctx.resolveRemote(b);
         await exec(gitFetchBranchCommand(remote, b));
-        for (const l of d.body) {
+        for (const l of lines) {
           // The shell redirect can't create parent directories, and the dest
           // may not exist on trunk (e.g. container skills that live only on
           // the channels branch). Mirror the local-copy path's mkdir.
@@ -661,14 +671,15 @@ async function applyOne(
           await exec(gitShowToFileCommand(`refs/remotes/${remote}/${b}`, srcOf(l), destOf(l)));
         }
       } else {
-        for (const l of d.body) {
+        for (const l of lines) {
           const dst = join(root, destOf(l));
           mkdirSync(dirname(dst), { recursive: true });
           copyFileSync(join(skillDir, srcOf(l)), dst);
         }
       }
-      for (const l of d.body) journal.push({ op: 'wrote', path: destOf(l) });
+      for (const l of lines) journal.push({ op: 'wrote', path: destOf(l) });
       break;
+    }
     case 'append': {
       const to = String(d.attrs.to);
       const marker = typeof d.attrs.at === 'string' ? d.attrs.at : undefined;
@@ -826,13 +837,19 @@ export async function applySkill(skillDir: string, root: string, opts: ApplyOpti
   // caught, or one newer than this engine) bounces to an agent, never blocks.
   const md = read(join(skillDir, 'SKILL.md'));
   const directives = parseDirectives(md);
-  const exec =
+  const execute =
     opts.exec ??
     (() => {
       throw new Error('no exec provided');
     });
   const resolveRemote = opts.resolveRemote ?? ((b: string) => defaultResolveRemote(b, root));
   const vars = new Map<string, { value: string; secret: boolean }>();
+  const redact = (text: string): string => {
+    const secrets = [...vars.values()].filter((v) => v.secret && v.value).map((v) => v.value);
+    for (const secret of secrets.sort((a, b) => b.length - a.length)) text = text.split(secret).join('[REDACTED]');
+    return text;
+  };
+  const exec = (cmd: string) => execute(cmd, { redact });
   const res: ApplyResult = {
     applied: [],
     skipped: [],
@@ -985,7 +1002,7 @@ export async function applySkill(skillDir: string, root: string, opts: ApplyOpti
         root,
         skillDir,
         exec,
-        execStream: opts.execStream,
+        execStream: opts.execStream ? (cmd) => opts.execStream!(cmd, { redact }) : undefined,
         resolveRemote,
         resolveDependencyCommand: opts.resolveDependencyCommand,
         vars,
@@ -998,7 +1015,7 @@ export async function applySkill(skillDir: string, root: string, opts: ApplyOpti
         await opts.onEvent({ type: 'step-end', kind: d.kind, line: d.line, label, ok: true, durationMs });
       res.applied.push(`${d.kind}: ${st.detail}`);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = redact(e instanceof Error ? e.message : String(e));
       // Close the step as failed before classifying — keeps step-start/step-end
       // balanced whether the throw becomes a deferred (unresolved input) or a
       // bounce (a real failure, handled below). The failure-path close is
