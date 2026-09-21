@@ -127,6 +127,7 @@ function ensureServer(): void {
 
   const candidate = http.createServer((req, res) => {
     res.setHeader('x-nanoclaw-webhook-id', id);
+    const requestStart = Date.now();
     void (async () => {
       const url = req.url || '/';
 
@@ -139,6 +140,28 @@ function ensureServer(): void {
       }
 
       const adapterName = match[1];
+
+      // Per-request incoming log — surfaces raw traffic when downstream routing
+      // silently drops events. Include the Slack retry hint so we can tell a
+      // fresh event from a Slack redelivery.
+      const slackRetryNum = req.headers['x-slack-retry-num'];
+      const slackRetryReason = req.headers['x-slack-retry-reason'];
+      log.info('Webhook request in', {
+        adapter: adapterName,
+        method: req.method,
+        ua: req.headers['user-agent'],
+        cfRay: req.headers['cf-ray'],
+        slackRetryNum,
+        slackRetryReason,
+      });
+      res.on('finish', () => {
+        log.info('Webhook request out', {
+          adapter: adapterName,
+          status: res.statusCode,
+          durationMs: Date.now() - requestStart,
+          slackRetryNum,
+        });
+      });
 
       try {
         // Raw routes take priority — the handler writes the response itself.
