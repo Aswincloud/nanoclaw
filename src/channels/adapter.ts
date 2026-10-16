@@ -22,7 +22,17 @@ export interface ChannelSetup {
   onMetadata(platformId: string, name?: string, isGroup?: boolean): void;
 
   /** Called when a user clicks a button/action in a card (e.g., ask_user_question response). */
-  onAction(questionId: string, selectedOption: string, userId: string): void;
+  onAction(
+    questionId: string,
+    selectedOption: string,
+    userId: string,
+    address?: {
+      instance?: string;
+      messageId?: string;
+      platformId?: string;
+      threadId?: string | null;
+    },
+  ): void;
 }
 
 /** Delivery address used for reply-to overrides and (normally) the inbound's own origin. */
@@ -110,6 +120,16 @@ export interface ConversationInfo {
   platformId: string;
   name: string;
   isGroup: boolean;
+}
+
+/** Human-readable conversation metadata resolved by an adapter. */
+export interface ResolvedConversation {
+  type: 'direct' | 'group_dm' | 'channel';
+  name: string | null;
+  /** Parallel to participantIds (same length and order) when both are present. */
+  participantNames?: string[];
+  /** Parallel to participantNames (same length and order) when both are present. */
+  participantIds?: string[];
 }
 
 /** Wiring/mg defaults for one conversation context (DM vs group/channel). */
@@ -227,6 +247,9 @@ export interface ChannelAdapter {
     statusKind?: 'auto' | 'agent',
   ): Promise<void>;
   syncConversations?(): Promise<ConversationInfo[]>;
+  /** Resolve conversation type and human-readable metadata for host UI. */
+  resolveConversation?(platformId: string): Promise<ResolvedConversation | null>;
+  /** Legacy name-only resolver for adapters without richer conversation metadata. */
   resolveChannelName?(platformId: string): Promise<string | null>;
 
   /**
