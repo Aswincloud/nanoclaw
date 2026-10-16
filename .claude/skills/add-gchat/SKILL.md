@@ -106,7 +106,7 @@ whose sender `type` is `BOT`. It looks like `users/123456789`. Add it to `.env`
 and restart the service:
 
 ```
-GCHAT_BOT_USER_ID=users/123456789
+GOOGLE_CHAT_BOT_USER_ID=users/123456789
 ```
 
 ### Webhook server
@@ -137,7 +137,7 @@ If you're in the middle of `/setup`, return to the setup flow now. Otherwise run
 
 **Messages sent in the space never reach the agent.** Google Chat delivers only to the HTTP endpoint URL set under **Google Chat API → Configuration**, and that URL must be publicly reachable at `/webhook/gchat` (shared webhook server, port 3000). Tunnel hostnames (ngrok free tier) change on restart — make sure the Configuration URL matches the tunnel that's actually up.
 
-**DMs work, but @mentions in a space are ignored.** `GCHAT_BOT_USER_ID` is missing or wrong; the log shows "Google Chat botUserId is not configured" at startup. Set it as described under **Bot user id** and restart.
+**DMs work, but @mentions in a space are ignored.** `GOOGLE_CHAT_BOT_USER_ID` is missing or wrong; the log shows "Google Chat botUserId is not configured" at startup. Set it as described under **Bot user id** and restart.
 
 **The app doesn't appear when adding it to a space.** Check the Chat API Configuration page: the app status must be live and its visibility must include your domain or user, and you must be adding it from the same Google Workspace the Cloud project belongs to.
 
