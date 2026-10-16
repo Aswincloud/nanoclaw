@@ -402,6 +402,9 @@ async function testCombinedProviders(skills: RegistrySkill[]): Promise<void> {
       await testSkill(meta, fixtureScenarios(meta)[0] ?? {}, root, refs, false, [...SKIPPED_EFFECTS, 'build', 'test']);
     }
 
+    // Only a skill that copies from the branch pins its commit in testSkill, so a
+    // payload-only selection would leave the object missing from this clone.
+    pinRegistryRef(root, 'providers', refs.providers);
     git(['update-ref', 'refs/heads/providers', refs.providers], root);
     git(['remote', 'remove', 'origin'], root);
     git(['remote', 'add', 'skill-ci', '.'], root);
