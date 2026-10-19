@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Adapter, AdapterPostableMessage, RawMessage } from 'chat';
 
+import { fenceForCard } from '../card-text.js';
 import { gatewayApprovalPresentation } from '../gateway-approval-presentation.js';
 import type { GatewayApprovalRequest } from '../gateway-providers/gateway-provider-registry.js';
 import { CardTooLongError } from './ask-question.js';
@@ -421,6 +422,62 @@ describe('createChatSdkBridge.deliver — ask_question cards (button styles)', (
       { type: 'text', content: '⏱️ Timed out — no response', style: 'muted' },
     ]);
     expect(edited.card.children.some((child) => child.type === 'actions')).toBe(false);
+  });
+
+  it('splits a long fenced host card into blocks that each keep their own fences', async () => {
+    const { calls, postMessage } = makePostCapture();
+    const bridge = createChatSdkBridge({
+      adapter: stubAdapter({ postMessage }),
+      supportsThreads: false,
+      escapeCardText: (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+    });
+    const body = Array.from({ length: 150 }, (_, i) => `line ${i}: \`code\` <x|y> & more`).join('\n');
+
+    await bridge.deliver('slack:D1', null, {
+      kind: 'chat-sdk',
+      content: {
+        type: 'ask_question',
+        questionId: 'q-long',
+        title: 'Message approval',
+        question: `Agent "A" wants to send a message to "B":\n\n${fenceForCard(body)}\n\nApprove?`,
+        options: ['Approve'],
+      },
+    });
+    const card = (calls[0].message as { card: { children: Array<{ type: string; content?: string }> } }).card;
+    const blocks = card.children.filter((c) => c.type === 'text').map((c) => c.content!);
+    expect(blocks.length).toBeGreaterThan(1);
+    for (const block of blocks) {
+      expect(block.length).toBeLessThanOrEqual(CARD_TEXT_BLOCK_LENGTH);
+      expect((block.match(/^ {0,3}```/gm) ?? []).length % 2).toBe(0);
+      expect(block).not.toMatch(/[<>]/);
+    }
+  });
+
+  it('leaves a question the agent asked itself (fromAgent) unescaped', async () => {
+    const { calls, postMessage } = makePostCapture();
+    const bridge = createChatSdkBridge({
+      adapter: stubAdapter({ postMessage }),
+      supportsThreads: false,
+      escapeCardText: (t) => `[${t}]`,
+    });
+
+    await bridge.deliver('slack:C1', null, {
+      kind: 'chat-sdk',
+      content: {
+        type: 'ask_question',
+        questionId: 'q-4',
+        title: 'Pick one',
+        question: 'See <https://example.com|docs>?',
+        options: ['Yes'],
+        fromAgent: true,
+      },
+    });
+    const posted = calls[0].message as {
+      card: { children: Array<{ type: string; content?: string }> };
+      fallbackText: string;
+    };
+    expect(posted.card.children[0]).toEqual({ type: 'text', content: 'See <https://example.com|docs>?' });
+    expect(posted.fallbackText).toBe('Pick one\n\nSee <https://example.com|docs>?\nOptions: Yes');
   });
 
   it('runs open and resolved card text through escapeCardText, leaving the title alone', async () => {

@@ -374,9 +374,10 @@ export interface ChatSdkBridgeConfig {
    */
   transformOutboundText?: (text: string) => string;
   /**
-   * Optional escape for ask_question card text (open and resolved cards).
-   * Approval cards mix host wording with untrusted values (agent arguments,
-   * sender names); channels whose card text is raw platform markup set this.
+   * Optional escape for host-built ask_question card text (open and resolved
+   * cards). Approval cards mix host wording with untrusted values (agent
+   * arguments, sender names); channels whose card text is raw platform markup
+   * set this. Questions an agent asks itself (`fromAgent`) keep their markup.
    */
   escapeCardText?: (text: string) => string;
   /**
@@ -962,8 +963,10 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
         // Long text goes out as several blocks, measured after escaping, so no
         // per-block cap cuts it. A platform that caps the whole card refuses
         // what it can't show, counting the fences the split adds.
-        const text = cardText(question);
-        const blocks = splitCardText(question, cardText, CARD_TEXT_BLOCK_LENGTH);
+        // Questions an agent asks itself keep their own markup (`fromAgent`).
+        const escape = content.fromAgent === true ? (t: string) => t : cardText;
+        const text = escape(question);
+        const blocks = splitCardText(question, escape, CARD_TEXT_BLOCK_LENGTH);
         if (config.maxCardTextLength !== undefined) {
           const tooLong = cardQuestionTooLong(title, blocks.join('\n'), config.maxCardTextLength);
           if (tooLong) throw new CardTooLongError(tooLong);
