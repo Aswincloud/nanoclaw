@@ -23,8 +23,9 @@ The mechanical steps under **Install** carry `nc:` directive fences: an agent re
 
 ### Pre-flight
 
-Requires `src/project-doc-compose.ts` on trunk. If it is missing, stop and tell
-the operator to run `/update-nanoclaw` first.
+Requires `src/project-doc-compose.ts` and core's shared exchange archive
+(`container/agent-runner/src/provider-contracts/exchange-archive.ts`) on trunk.
+If either is missing, stop and tell the operator to run `/update-nanoclaw` first.
 
 Check whether the payload is already wired (a prior apply, or a trunk that still carries it). All of these present means installed — skip to **Authenticate**:
 
@@ -36,7 +37,7 @@ Check whether the payload is already wired (a prior apply, or a trunk that still
 
 ### 1. Copy the payload
 
-Copy the Codex payload from this skill's `payload/` into all three trees (additive — overwrite each file). The host files are the provider contribution + the AGENTS.md spec (composition itself lives in trunk's `src/project-doc-compose.ts`) + their guards; the container files are the provider runtime (turn loop, JSON-RPC wrapper, native memory SessionStart hook, per-exchange archiver) + their guards; the setup files are the picker entry + vault auth walk-through + their guards; `container/AGENTS.md` is the runtime-contract base the composed AGENTS.md embeds.
+Copy the Codex payload from this skill's `payload/` into all three trees (additive — overwrite each file). The host files are the provider contribution + the AGENTS.md spec (composition itself lives in trunk's `src/project-doc-compose.ts`) + their guards; the container files are the provider runtime (turn loop, JSON-RPC wrapper, native memory SessionStart hook) + their guards, and the runtime contract archives each exchange through core's shared archive; the setup files are the picker entry + vault auth walk-through + their guards; `container/AGENTS.md` is the runtime-contract base the composed AGENTS.md embeds.
 
 The host contract (`src/provider-contracts/codex.ts`) and the setup entry carry the authentication hook for the selected gateway: the same login choices, with custody delegated to the gateway. The setup screens and step sequence do not change.
 
@@ -48,8 +49,6 @@ payload/src/providers/codex-host-contribution.test.ts -> src/providers/codex-hos
 payload/src/providers/codex-agents-md.test.ts -> src/providers/codex-agents-md.test.ts
 payload/container/agent-runner/src/providers/codex.ts -> container/agent-runner/src/providers/codex.ts
 payload/container/agent-runner/src/providers/codex-app-server.ts -> container/agent-runner/src/providers/codex-app-server.ts
-payload/container/agent-runner/src/providers/exchange-archive.ts -> container/agent-runner/src/providers/exchange-archive.ts
-payload/container/agent-runner/src/providers/exchange-archive.test.ts -> container/agent-runner/src/providers/exchange-archive.test.ts
 payload/container/agent-runner/src/providers/codex-registration.test.ts -> container/agent-runner/src/providers/codex-registration.test.ts
 payload/container/agent-runner/src/providers/codex.factory.test.ts -> container/agent-runner/src/providers/codex.factory.test.ts
 payload/container/agent-runner/src/providers/codex.turns.test.ts -> container/agent-runner/src/providers/codex.turns.test.ts
@@ -63,6 +62,14 @@ payload/container/AGENTS.md -> container/AGENTS.md
 payload/src/provider-contracts/codex.ts -> src/provider-contracts/codex.ts
 payload/setup/providers/codex.ts -> setup/providers/codex.ts
 payload/setup/providers/codex.test.ts -> setup/providers/codex.test.ts
+```
+
+The payload used to ship its own copy of the exchange archive. Once neither Codex
+file imports it, this step removes it, so a refreshed install ends up with the same
+files as a fresh one. An install that kept older Codex files keeps the copy they need.
+
+```nc:run effect:refresh
+grep -qsF exchange-archive.js container/agent-runner/src/providers/codex.ts || grep -qsF providers/exchange-archive.js container/agent-runner/src/provider-contracts/codex.ts || rm -f container/agent-runner/src/providers/exchange-archive.ts container/agent-runner/src/providers/exchange-archive.test.ts
 ```
 
 ### 2. Wire the barrels

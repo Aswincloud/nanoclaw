@@ -547,6 +547,18 @@ async function testProviderPayloadSwitch(commit: string): Promise<void> {
       console.log(`\n==> ${legacy.skill} from providers ${refs.providers} with the SKILL.md of ${commit}`);
       await testSkill(legacy, fixtureScenarios(legacy)[0] ?? {}, root, refs, false, skipEffects);
     }
+    // Setup's install path re-applies today's skill over a branch install. Install
+    // mode only fills gaps, so it must not change or remove a file already there.
+    const branchInstall = state();
+    for (const { current } of moved) {
+      console.log(`\n==> ${current.skill} re-applied in install mode over the branch install`);
+      await testSkill(current, fixtureScenarios(current)[0] ?? {}, root, refs, false, skipEffects);
+    }
+    const afterInstall = state();
+    const disturbed = [...branchInstall]
+      .filter(([file, hash]) => hash !== 'missing' && afterInstall.get(file) !== hash)
+      .map(([file]) => file);
+    if (disturbed.length) throw new Error(`install over a branch install changed or removed: ${disturbed.join(', ')}`);
     // The locked branch still matches the payload, so make each copy stale: the refresh must rewrite all of them.
     for (const file of copied) if (existsSync(join(root, file))) appendFileSync(join(root, file), '\n// stale\n');
     // No registry ref or remote is left, so a refresh that still reads the branch fails.

@@ -168,3 +168,28 @@ function fakeAppServer(): AppServer {
     serverRequestHandlers: [],
   } as unknown as AppServer;
 }
+
+(hasContractCore ? describe : describe.skip)('codex exchange archive', () => {
+  it("hands each exchange to core's shared archive through the factory-wrapped provider", async () => {
+    const archive = await import('../provider-contracts/exchange-archive.js');
+    const archiveSpy = spyOn(archive, 'archiveProviderExchange').mockReturnValue('archived.md');
+    try {
+      await import('./index.js');
+      await import('../provider-contracts/index.js');
+      const { createProvider } = await import('./factory.js');
+      const provider = createProvider('codex', { mcpServers: SERVERS });
+      provider.onExchangeComplete?.({ prompt: 'hello', result: 'world', continuation: 'thread-1', status: 'completed' });
+
+      expect(archiveSpy).toHaveBeenCalledTimes(1);
+      expect(archiveSpy.mock.calls[0]?.[0]).toMatchObject({
+        provider: 'codex',
+        prompt: 'hello',
+        result: 'world',
+        continuation: 'thread-1',
+        status: 'completed',
+      });
+    } finally {
+      archiveSpy.mockRestore();
+    }
+  });
+});

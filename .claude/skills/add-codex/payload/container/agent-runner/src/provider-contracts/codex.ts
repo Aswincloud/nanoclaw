@@ -8,9 +8,9 @@ import {
   type CodexMemorySessionHook,
   writeCodexConfigToml,
 } from '../providers/codex-app-server.js';
-import { archiveProviderExchange } from '../providers/exchange-archive.js';
 import { registerProviderContract } from '../providers/provider-registry.js';
 
+import { archiveProviderExchange } from './exchange-archive.js';
 import {
   type ProviderRuntimeContract,
   type RuntimeAfterExchangeInput,

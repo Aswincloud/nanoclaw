@@ -10,11 +10,9 @@ import type {
   AgentQuery,
   McpServerConfig,
   ProviderEvent,
-  ProviderExchange,
   ProviderOptions,
   QueryInput,
 } from './types.js';
-import { archiveProviderExchange as archiveProviderExchangeLegacy } from './exchange-archive.js';
 import {
   type AppServer,
   type CodexConfigPlan,
@@ -90,19 +88,6 @@ function classifyError(message: string): string | undefined {
 
 export class CodexProvider implements AgentProvider {
   readonly supportsNativeSlashCommands = false;
-  // The app-server keeps history server-side; there is no on-disk transcript,
-  // so each exchange is persisted into `conversations/`. A contract core
-  // replaces this fallback with the contract's afterExchange at the factory
-  // boundary; a pre-contract core calls it directly.
-  onExchangeComplete(exchange: ProviderExchange): void {
-    archiveProviderExchangeLegacy({
-      provider: 'codex',
-      prompt: exchange.prompt,
-      result: exchange.result,
-      continuation: exchange.continuation,
-      status: exchange.status,
-    });
-  }
 
   private readonly mcpServers: Record<string, McpServerConfig>;
   private readonly inference: CodexConfigPlan['inference'];
