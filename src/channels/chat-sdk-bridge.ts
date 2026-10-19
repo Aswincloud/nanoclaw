@@ -93,8 +93,8 @@ export interface AppContextEntity {
  * Latest assistant context per (instance, DM channel, user), attached to the
  * NEXT inbound DM message as content.app_context and consumed. Platforms
  * whose DM surface materializes threads and reports client context send
- * app_context as its own event (assistant_thread_started legacy /
- * app_context_changed in agent view), not on the message payload, so the
+ * app_context as its own event (assistant_thread_started /
+ * assistant_thread_context_changed), not on the message payload, so the
  * bridge has to hold it across the event → message gap. Short TTL: a stale
  * "viewing X" is worse than none.
  */
