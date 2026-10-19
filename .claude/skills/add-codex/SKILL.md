@@ -107,6 +107,7 @@ The agent's global Node CLIs install from `container/cli-tools.json` (a json-mer
 ```
 
 The version (`0.162.1`) is the canonical pin — this SKILL.md is the source of truth.
+Codex 0.156.0 and later look up the login's workspace id before any model request, so a ChatGPT login needs the credential gateway skill from the same NanoClaw release, which puts that id in the agent's stand-in login. `/update-nanoclaw` refreshes both together; do not refresh this skill alone on an older gateway.
 
 ### 4. Build
 
