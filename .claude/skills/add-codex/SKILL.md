@@ -69,7 +69,7 @@ file imports it, this step removes it, so a refreshed install ends up with the s
 files as a fresh one. An install that kept older Codex files keeps the copy they need.
 
 ```nc:run effect:refresh
-grep -qsF exchange-archive.js container/agent-runner/src/providers/codex.ts || grep -qsF providers/exchange-archive.js container/agent-runner/src/provider-contracts/codex.ts || rm -f container/agent-runner/src/providers/exchange-archive.ts container/agent-runner/src/providers/exchange-archive.test.ts
+grep -qsF ./exchange-archive.js container/agent-runner/src/providers/codex.ts || grep -qsF providers/exchange-archive.js container/agent-runner/src/provider-contracts/codex.ts || rm -f container/agent-runner/src/providers/exchange-archive.ts container/agent-runner/src/providers/exchange-archive.test.ts
 ```
 
 ### 2. Wire the barrels
